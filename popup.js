@@ -88,6 +88,7 @@ collectBtn.onclick=()=>{
       pinned:!!t.pinned,
       favIconUrl:t.favIconUrl||null
     }));
+    // Deduplicate by URL
     sitesCache=[...new Map([...sitesCache,...newSites].map(i=>[i.url,i])).values()];
     saveSites(sitesCache);
     renderList(sitesCache);
@@ -103,7 +104,8 @@ fileInput.onchange=e=>{
   reader.onload=()=>{
     try{
       const imported=JSON.parse(reader.result);
-      sitesCache=[...sitesCache,...imported];
+      // Deduplicate by URL when importing
+      sitesCache=[...new Map([...sitesCache,...imported].map(i=>[i.url,i])).values()];
       saveSites(sitesCache);
       renderList(sitesCache);
     }catch{alert('Invalid JSON');}
