@@ -9,6 +9,12 @@ const fileInput=document.getElementById('fileInput');
 const sitesList=document.getElementById('sitesList');
 const emptyState=document.getElementById('emptyState');
 
+// 🔹 New button
+const clearBtn=document.createElement('button');
+clearBtn.textContent="Clear List";
+clearBtn.style.marginTop="6px";
+document.querySelector(".controls").appendChild(clearBtn);
+
 let sitesCache=[]; 
 let showPinnedOnly=false;
 
@@ -88,10 +94,12 @@ collectBtn.onclick=()=>{
       pinned:!!t.pinned,
       favIconUrl:t.favIconUrl||null
     }));
-    // Deduplicate by URL
+    const before=sitesCache.length;
     sitesCache=[...new Map([...sitesCache,...newSites].map(i=>[i.url,i])).values()];
+    const added=sitesCache.length-before;
     saveSites(sitesCache);
     renderList(sitesCache);
+    if(added>0) alert(`${added} new site(s) collected.`);
   });
 };
 
@@ -104,10 +112,12 @@ fileInput.onchange=e=>{
   reader.onload=()=>{
     try{
       const imported=JSON.parse(reader.result);
-      // Deduplicate by URL when importing
+      const before=sitesCache.length;
       sitesCache=[...new Map([...sitesCache,...imported].map(i=>[i.url,i])).values()];
+      const added=sitesCache.length-before;
       saveSites(sitesCache);
       renderList(sitesCache);
+      alert(added>0 ? `${added} new site(s) imported.` : "No new sites (all were duplicates).");
     }catch{alert('Invalid JSON');}
   };
   reader.readAsText(file);
@@ -128,3 +138,12 @@ openPinnedBtn.onclick=()=>sitesCache.filter(s=>s.pinned).forEach(s=>chrome.tabs.
 
 filterPinned.onchange=()=>{showPinnedOnly=filterPinned.checked;renderList(sitesCache);};
 searchBox.oninput=()=>renderList(sitesCache);
+
+// --- clear list
+clearBtn.onclick=()=>{
+  if(confirm("Are you sure you want to clear the entire list?")){
+    sitesCache=[];
+    saveSites(sitesCache);
+    renderList(sitesCache);
+  }
+};
