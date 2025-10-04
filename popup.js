@@ -1,99 +1,74 @@
-// popup.js
+const STORAGE_KEY = 'tabCollector_sites_v3';
+const sitesList = document.getElementById('sitesList');
+const emptyState = document.getElementById('emptyState');
 const collectBtn = document.getElementById('collectBtn');
 const exportBtn = document.getElementById('exportBtn');
 const fileInput = document.getElementById('fileInput');
-const sitesList = document.getElementById('sitesList');
-const emptyState = document.getElementById('emptyState');
-const themeToggle = document.getElementById('themeToggle');
+const searchBox = document.getElementById('searchBox');
+const togglePinnedBtn = document.getElementById('togglePinnedBtn');
+const openAllBtn = document.getElementById('openAllBtn');
+const openPinnedBtn = document.getElementById('openPinnedBtn');
+const mergeNotice = document.getElementById('mergeNotice');
 
-const STORAGE_KEY = 'tabCollector_sites_v1';
-const THEME_KEY = 'tabCollector_theme_v1';
+let showPinnedOnly = false;
+let sitesCache = [];
 
-// --- Storage helpers (chrome.storage.local) ---
-function saveToStorage(list){
-  const payload = {};
-  payload[STORAGE_KEY] = list;
-  chrome.storage.local.set(payload);
-}
-function loadFromStorage(){
-  return new Promise(resolve => {
-    chrome.storage.local.get([STORAGE_KEY], result => {
-      resolve(result[STORAGE_KEY] || []);
-    });
-  });
-}
+// ---------------- Storage ----------------
+function saveSites(list){ chrome.storage.local.set({[STORAGE_KEY]: list}); }
+function loadSites(){ return new Promise(r=>chrome.storage.local.get([STORAGE_KEY],res=>r(res[STORAGE_KEY]||[]))); }
 
-function saveTheme(theme){
-  chrome.storage.local.set({[THEME_KEY]: theme});
-}
-function loadTheme(){
-  return new Promise(resolve => {
-    chrome.storage.local.get([THEME_KEY], res => resolve(res[THEME_KEY] || 'light'));
-  });
-}
-
-// --- UI rendering ---
-function createFaviconChar(url){
-  try{
-    const h = new URL(url).hostname.replace('www.','');
-    return h[0].toUpperCase();
-  }catch(e){
-    return '?';
-  }
-}
+// ---------------- Rendering ----------------
+function hostname(url){ try{ return new URL(url).hostname; }catch{return url;} }
 
 function renderList(list){
-  sitesList.innerHTML = '';
-  if(!list || list.length === 0){
-    emptyState.style.display = 'block';
-    return;
-  }
-  emptyState.style.display = 'none';
+  const query = searchBox.value.toLowerCase();
+  const filtered = list.filter(s=>{
+    if(showPinnedOnly && !s.pinned) return false;
+    if(query && !hostname(s.url).toLowerCase().includes(query)) return false;
+    return true;
+  });
 
-  list.forEach(item => {
-    const li = document.createElement('li');
-    li.className = 'site-item';
+  sitesList.innerHTML='';
+  if(filtered.length===0){ emptyState.style.display='block'; return; }
+  emptyState.style.display='none';
 
-    const main = document.createElement('div');
-    main.className = 'site-main';
+  filtered.forEach(item=>{
+    const li=document.createElement('li'); 
+    li.className='site-item';
 
-    const fav = document.createElement('div');
-    fav.className = 'favicon';
-    fav.textContent = createFaviconChar(item.url);
+    const main=document.createElement('div'); 
+    main.className='site-main';
 
-    const link = document.createElement('a');
-    link.className = 'site-link';
-    link.href = '#';
-    link.textContent = item.title || item.name || item.url;
-    link.title = item.url;
-    link.onclick = (e) => {
-      e.preventDefault();
-      // open in new tab
-      chrome.tabs.create({url: item.url});
-    };
+    // favicon = open button
+    const fav=document.createElement('img');
+    fav.className='favicon';
+    fav.src=item.favIconUrl || `https://www.google.com/s2/favicons?domain=${hostname(item.url)}`;
+    fav.alt='icon';
+    fav.title='Open site';
+    fav.onclick=()=>chrome.tabs.create({url:item.url});
+
+    const link=document.createElement('span');
+    link.className='site-link';
+    link.textContent=hostname(item.url);
+    link.title=`${item.title}\n${item.url}`;
 
     main.appendChild(fav);
     main.appendChild(link);
 
-    const actions = document.createElement('div');
-    actions.className = 'site-actions';
+    // remove button
+    const actions=document.createElement('div'); 
+    actions.className='site-actions';
 
-    const openBtn = document.createElement('button');
-    openBtn.className = 'open-btn';
-    openBtn.textContent = 'Open';
-    openBtn.onclick = () => chrome.tabs.create({url: item.url});
-
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-btn';
-    removeBtn.textContent = 'Remove';
-    removeBtn.onclick = async () => {
-      const current = await loadFromStorage();
-      const filtered = current.filter(s => s.url !== item.url);
-      saveToStorage(filtered);
-      renderList(filtered);
+    const removeBtn=document.createElement('button'); 
+    removeBtn.className='remove-btn';
+    removeBtn.innerHTML='&times;';
+    removeBtn.title='Remove site';
+    removeBtn.onclick=()=>{
+      sitesCache=sitesCache.filter(s=>s.url!==item.url);
+      saveSites(sitesCache);
+      renderList(sitesCache);
     };
 
-    actions.appendChild(openBtn);
     actions.appendChild(removeBtn);
 
     li.appendChild(main);
@@ -102,99 +77,83 @@ function renderList(list){
   });
 }
 
-// --- Collect tabs (open + pinned across all windows) ---
+// ---------------- Collect Tabs ----------------
 function collectSites(){
-  // Query all tabs in all windows
-  chrome.tabs.query({}, (tabs) => {
-    const unique = [];
-    const seen = new Set();
-    // prefer pinned info (we keep it in object)
-    tabs.forEach(t => {
+  chrome.tabs.query({}, tabs=>{
+    const unique=[]; const seen=new Set();
+    tabs.forEach(t=>{
       if(!t.url) return;
-      // skip chrome internal pages (optional)
-      if(t.url.startsWith('chrome://') || t.url.startsWith('chrome-extension://')) {
-        // still allow if you want; we exclude for a cleaner list
-        return;
-      }
-      // de-duplicate by url (simple)
-      const key = t.url;
-      if(seen.has(key)) return;
-      seen.add(key);
+      if(t.url.startsWith('chrome://')||t.url.startsWith('chrome-extension://')) return;
+      if(seen.has(t.url)) return;
+      seen.add(t.url);
       unique.push({
-        title: t.title || t.url,
-        url: t.url,
-        pinned: !!t.pinned,
-        favIconUrl: t.favIconUrl || ''
+        url:t.url,
+        title:t.title,
+        pinned:!!t.pinned,
+        favIconUrl:t.favIconUrl || null
       });
     });
-
-    // Save automatically
-    saveToStorage(unique);
+    sitesCache=unique;
+    saveSites(unique);
     renderList(unique);
   });
 }
 
-// --- Export JSON (download) ---
-async function exportJSON(){
-  const list = await loadFromStorage();
-  const blob = new Blob([JSON.stringify(list, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const dt = new Date().toISOString().slice(0,19).replace(/:/g,'-');
-  a.download = `tab-collector-${dt}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+// ---------------- Export/Import ----------------
+function exportJSON(){
+  const blob=new Blob([JSON.stringify(sitesCache,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='sites.json'; a.click(); URL.revokeObjectURL(url);
 }
 
-// --- Import JSON from file ---
-fileInput.addEventListener('change', (e) => {
-  const f = e.target.files[0];
-  if(!f) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
+fileInput.addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
     try{
-      const parsed = JSON.parse(reader.result);
-      if(Array.isArray(parsed)){
-        // Optional: validate items have url
-        const cleaned = parsed.filter(p => p && (p.url || p.name || p.title)).map(p => {
-          return { title: p.title || p.name || p.url, url: p.url || '', pinned: !!p.pinned, favIconUrl: p.favIconUrl || '' };
-        });
-        saveToStorage(cleaned);
-        renderList(cleaned);
-      } else {
-        alert('Invalid JSON format: expected an array of sites.');
+      const parsed=JSON.parse(reader.result);
+      if(!Array.isArray(parsed)) return alert('Invalid file');
+      const seen=new Set(sitesCache.map(s=>s.url));
+      let added=0;
+      parsed.forEach(p=>{
+        if(p.url && !seen.has(p.url)){ 
+          sitesCache.push({
+            url:p.url,
+            title:p.title||p.url,
+            pinned:!!p.pinned,
+            favIconUrl:p.favIconUrl||null
+          }); 
+          seen.add(p.url); 
+          added++; 
+        }
+      });
+      saveSites(sitesCache);
+      renderList(sitesCache);
+      if(added>0){ 
+        mergeNotice.textContent=`${added} new site(s) added.`; 
+        mergeNotice.classList.remove('hidden'); 
+        setTimeout(()=>mergeNotice.classList.add('hidden'),4000); 
       }
-    } catch(err){
-      alert('Failed to parse JSON.');
-    }
-    // clear input so same file can be re-selected later
-    e.target.value = '';
+    }catch{ alert('Invalid JSON'); }
   };
   reader.readAsText(f);
 });
 
-// Event bindings
-collectBtn.addEventListener('click', collectSites);
-exportBtn.addEventListener('click', exportJSON);
-
-// Theme handling
-themeToggle.addEventListener('change', async () => {
-  const theme = themeToggle.checked ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
-  saveTheme(theme);
+// ---------------- Filters & Actions ----------------
+searchBox.addEventListener('input',()=>renderList(sitesCache));
+togglePinnedBtn.addEventListener('click',()=>{
+  showPinnedOnly=!showPinnedOnly;
+  togglePinnedBtn.textContent=showPinnedOnly?'Show All':'Show Pinned Only';
+  renderList(sitesCache);
 });
+openAllBtn.addEventListener('click',()=>{sitesCache.forEach(s=>chrome.tabs.create({url:s.url}));});
+openPinnedBtn.addEventListener('click',()=>{sitesCache.filter(s=>s.pinned).forEach(s=>chrome.tabs.create({url:s.url}));});
 
-// Initialize UI
+// ---------------- Init ----------------
+collectBtn.addEventListener('click',collectSites);
+exportBtn.addEventListener('click',exportJSON);
+
 (async function init(){
-  // load saved list
-  const saved = await loadFromStorage();
-  renderList(saved);
-
-  // load theme
-  const theme = await loadTheme();
-  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
-  themeToggle.checked = theme === 'dark';
+  sitesCache=await loadSites();
+  renderList(sitesCache);
 })();
