@@ -1,28 +1,26 @@
-const STORAGE_KEY = 'tabCollector_sites_v3';
-const sitesList = document.getElementById('sitesList');
-const emptyState = document.getElementById('emptyState');
-const collectBtn = document.getElementById('collectBtn');
-const exportBtn = document.getElementById('exportBtn');
-const fileInput = document.getElementById('fileInput');
-const searchBox = document.getElementById('searchBox');
-const togglePinnedBtn = document.getElementById('togglePinnedBtn');
-const openAllBtn = document.getElementById('openAllBtn');
-const openPinnedBtn = document.getElementById('openPinnedBtn');
-const mergeNotice = document.getElementById('mergeNotice');
+const collectBtn=document.getElementById('collectBtn');
+const importBtn=document.getElementById('importBtn');
+const exportBtn=document.getElementById('exportBtn');
+const openAllBtn=document.getElementById('openAllBtn');
+const openPinnedBtn=document.getElementById('openPinnedBtn');
+const filterPinned=document.getElementById('filterPinned');
+const searchBox=document.getElementById('searchBox');
+const fileInput=document.getElementById('fileInput');
+const sitesList=document.getElementById('sitesList');
+const emptyState=document.getElementById('emptyState');
 
-let showPinnedOnly = false;
-let sitesCache = [];
+let sitesCache=[]; 
+let showPinnedOnly=false;
 
-// ---------------- Storage ----------------
-function saveSites(list){ chrome.storage.local.set({[STORAGE_KEY]: list}); }
-function loadSites(){ return new Promise(r=>chrome.storage.local.get([STORAGE_KEY],res=>r(res[STORAGE_KEY]||[]))); }
+function hostname(url){
+  try { return new URL(url).hostname; } catch { return url; }
+}
 
-// ---------------- Rendering ----------------
-function hostname(url){ try{ return new URL(url).hostname; }catch{return url;} }
+function saveSites(list){ chrome.storage.local.set({sites:list}); }
 
 function renderList(list){
-  const query = searchBox.value.toLowerCase();
-  const filtered = list.filter(s=>{
+  const query=searchBox.value.toLowerCase();
+  const filtered=list.filter(s=>{
     if(showPinnedOnly && !s.pinned) return false;
     if(query && !hostname(s.url).toLowerCase().includes(query)) return false;
     return true;
@@ -39,7 +37,6 @@ function renderList(list){
     const main=document.createElement('div'); 
     main.className='site-main';
 
-    // favicon = open button
     const fav=document.createElement('img');
     fav.className='favicon';
     fav.src=item.favIconUrl || `https://www.google.com/s2/favicons?domain=${hostname(item.url)}`;
@@ -50,12 +47,11 @@ function renderList(list){
     const link=document.createElement('span');
     link.className='site-link';
     link.textContent=hostname(item.url);
-    link.title=`${item.title}\n${item.url}`;
+    link.title=item.url;
 
     main.appendChild(fav);
     main.appendChild(link);
 
-    // remove button
     const actions=document.createElement('div'); 
     actions.className='site-actions';
 
@@ -77,83 +73,56 @@ function renderList(list){
   });
 }
 
-// ---------------- Collect Tabs ----------------
-function collectSites(){
-  chrome.tabs.query({}, tabs=>{
-    const unique=[]; const seen=new Set();
-    tabs.forEach(t=>{
-      if(!t.url) return;
-      if(t.url.startsWith('chrome://')||t.url.startsWith('chrome-extension://')) return;
-      if(seen.has(t.url)) return;
-      seen.add(t.url);
-      unique.push({
-        url:t.url,
-        title:t.title,
-        pinned:!!t.pinned,
-        favIconUrl:t.favIconUrl || null
-      });
-    });
-    sitesCache=unique;
-    saveSites(unique);
-    renderList(unique);
+// --- load stored sites
+chrome.storage.local.get('sites', data=>{
+  sitesCache=data.sites||[];
+  renderList(sitesCache);
+});
+
+// --- collect tabs
+collectBtn.onclick=()=>{
+  chrome.tabs.query({},tabs=>{
+    const newSites=tabs.map(t=>({
+      url:t.url,
+      title:t.title,
+      pinned:!!t.pinned,
+      favIconUrl:t.favIconUrl||null
+    }));
+    sitesCache=[...new Map([...sitesCache,...newSites].map(i=>[i.url,i])).values()];
+    saveSites(sitesCache);
+    renderList(sitesCache);
   });
-}
+};
 
-// ---------------- Export/Import ----------------
-function exportJSON(){
-  const blob=new Blob([JSON.stringify(sitesCache,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download='sites.json'; a.click(); URL.revokeObjectURL(url);
-}
-
-fileInput.addEventListener('change',e=>{
-  const f=e.target.files[0]; if(!f) return;
+// --- import
+importBtn.onclick=()=>fileInput.click();
+fileInput.onchange=e=>{
+  const file=e.target.files[0];
+  if(!file) return;
   const reader=new FileReader();
   reader.onload=()=>{
     try{
-      const parsed=JSON.parse(reader.result);
-      if(!Array.isArray(parsed)) return alert('Invalid file');
-      const seen=new Set(sitesCache.map(s=>s.url));
-      let added=0;
-      parsed.forEach(p=>{
-        if(p.url && !seen.has(p.url)){ 
-          sitesCache.push({
-            url:p.url,
-            title:p.title||p.url,
-            pinned:!!p.pinned,
-            favIconUrl:p.favIconUrl||null
-          }); 
-          seen.add(p.url); 
-          added++; 
-        }
-      });
+      const imported=JSON.parse(reader.result);
+      sitesCache=[...sitesCache,...imported];
       saveSites(sitesCache);
       renderList(sitesCache);
-      if(added>0){ 
-        mergeNotice.textContent=`${added} new site(s) added.`; 
-        mergeNotice.classList.remove('hidden'); 
-        setTimeout(()=>mergeNotice.classList.add('hidden'),4000); 
-      }
-    }catch{ alert('Invalid JSON'); }
+    }catch{alert('Invalid JSON');}
   };
-  reader.readAsText(f);
-});
+  reader.readAsText(file);
+};
 
-// ---------------- Filters & Actions ----------------
-searchBox.addEventListener('input',()=>renderList(sitesCache));
-togglePinnedBtn.addEventListener('click',()=>{
-  showPinnedOnly=!showPinnedOnly;
-  togglePinnedBtn.textContent=showPinnedOnly?'Show All':'Show Pinned Only';
-  renderList(sitesCache);
-});
-openAllBtn.addEventListener('click',()=>{sitesCache.forEach(s=>chrome.tabs.create({url:s.url}));});
-openPinnedBtn.addEventListener('click',()=>{sitesCache.filter(s=>s.pinned).forEach(s=>chrome.tabs.create({url:s.url}));});
+// --- export
+exportBtn.onclick=()=>{
+  const blob=new Blob([JSON.stringify(sitesCache,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='sites.json';a.click();
+  URL.revokeObjectURL(url);
+};
 
-// ---------------- Init ----------------
-collectBtn.addEventListener('click',collectSites);
-exportBtn.addEventListener('click',exportJSON);
+// --- open all
+openAllBtn.onclick=()=>sitesCache.forEach(s=>chrome.tabs.create({url:s.url}));
+openPinnedBtn.onclick=()=>sitesCache.filter(s=>s.pinned).forEach(s=>chrome.tabs.create({url:s.url}));
 
-(async function init(){
-  sitesCache=await loadSites();
-  renderList(sitesCache);
-})();
+filterPinned.onchange=()=>{showPinnedOnly=filterPinned.checked;renderList(sitesCache);};
+searchBox.oninput=()=>renderList(sitesCache);
