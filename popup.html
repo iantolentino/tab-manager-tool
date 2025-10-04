@@ -1,42 +1,27 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8">
   <title>Tab Collector</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="container">
-    <header class="header">
-      <div>
-        <h1>Tab Collector</h1>
-        <p class="subtitle">Save open & pinned tabs automatically</p>
-      </div>
-      <div class="controls">
-        <button id="collectBtn" class="btn primary">Collect</button>
-        <button id="exportBtn" class="btn">Export</button>
-        <label class="btn import-label">
-          Import <input id="fileInput" type="file" accept="application/json" />
-        </label>
-      </div>
-    </header>
-
-    <section class="tools">
-      <input id="searchBox" type="text" placeholder="Search sites..." />
-      <div class="actions">
-        <button id="togglePinnedBtn" class="btn">Show Pinned Only</button>
-        <button id="openAllBtn" class="btn">Open All</button>
-        <button id="openPinnedBtn" class="btn">Open All Pinned</button>
-      </div>
-    </section>
-
-    <section id="mergeNotice" class="notice hidden"></section>
-
-    <section class="list-section">
-      <ul id="sitesList" class="sites-list"></ul>
-      <div id="emptyState" class="empty">No sites collected yet.</div>
-    </section>
+  <header>
+    <h1>Tab Collector</h1>
+    <div class="controls">
+      <button id="collectBtn">Collect Sites</button>
+      <button id="importBtn">Import JSON</button>
+      <button id="exportBtn">Export JSON</button>
+      <button id="openAllBtn">Open All</button>
+      <button id="openPinnedBtn">Open All Pinned</button>
+      <label><input type="checkbox" id="filterPinned"> Show only pinned</label>
+      <input type="text" id="searchBox" placeholder="Search sites...">
+      <input type="file" id="fileInput" style="display:none">
+    </div>
+  </header>
+  <main>
+    <ul id="sitesList"></ul>
+    <p id="emptyState">No sites saved yet.</p>
   </main>
   <script src="popup.js"></script>
 </body>
