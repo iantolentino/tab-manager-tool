@@ -1,4 +1,4 @@
-# Tab Collector (Chrome Extension)
+# Tab Collector (Browser Extension)
 
 A minimal Chrome extension to **collect, save, and reopen your open and pinned tabs**.  
 Designed to be **modern, minimal, and user-friendly**.
